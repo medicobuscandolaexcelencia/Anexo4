@@ -1,24 +1,16 @@
-﻿import streamlit as st
+import streamlit as st
 import json
-import os
 from google import genai
 from google.genai import types
-from weasyprint import HTML
+from fpdf import FPDF
 
 # Configuración inicial de la página web
 st.set_page_config(page_title="Generador de Anexo 4", page_icon="🏥", layout="centered")
 
 # --- CONEXIÓN CON EL CEREBRO DE IA ---
 def extraer_datos_captura(imagen_bytes):
-    """Envía la imagen a la API de Gemini para extraer los datos clínicos"""
-    # Se requiere configurar la variable de entorno GEMINI_API_KEY en la plataforma en la nube
     client = genai.Client()
-    
-    # Preparamos el archivo para la IA
-    imagen_input = types.Part.from_bytes(
-        data=imagen_bytes,
-        mime_type="image/png",
-    )
+    imagen_input = types.Part.from_bytes(data=imagen_bytes, mime_type="image/png")
     
     instrucciones = """
     Analiza la captura de pantalla del sistema médico y extrae los datos en formato JSON estricto:
@@ -34,7 +26,6 @@ def extraer_datos_captura(imagen_bytes):
         "cie10_descripcion": ""
     }
     """
-    
     response = client.models.generate_content(
         model='gemini-2.5-flash',
         contents=[imagen_input, instrucciones],
@@ -42,63 +33,98 @@ def extraer_datos_captura(imagen_bytes):
     )
     return json.loads(response.text)
 
-# --- GENERADOR DE REPORTE PDF ---
-def generar_pdf(datos):
-    """Crea el HTML dinámico con los datos actuales y lo exporta a PDF"""
-    html_template = f"""
-    <html>
-    <head>
-        <style>
-            body {{ font-family: Arial, sans-serif; color: #333; line-height: 1.4; font-size: 11pt; }}
-            .header {{ text-align: center; font-weight: bold; font-size: 14pt; margin-bottom: 20px; text-transform: uppercase; }}
-            .section {{ background-color: #2b6cb0; color: white; padding: 5px 10px; font-weight: bold; margin-top: 15px; border-radius: 3px; }}
-            table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
-            th, td {{ border: 1px solid #cbd5e0; padding: 8px; text-align: left; vertical-align: top; }}
-            th {{ background-color: #f7fafc; width: 30%; font-weight: bold; }}
-            .vitals-table {{ text-align: center; }}
-            .vitals-table th, .vitals-table td {{ text-align: center; }}
-        </style>
-    </head>
-    <body>
-        <div class="header">Anexo No. 4 - Solicitud de Derivación<br><small>SUBSISTEMA: MSP</small></div>
-        
-        <div class="section">Datos del Paciente</div>
-        <table>
-            <tr><th>1. Apellidos</th><td>{datos['apellidos_paciente']}</td></tr>
-            <tr><th>2. Nombres</th><td>{datos['nombres_paciente']}</td></tr>
-            <tr><th>3. Cédula</th><td>{datos['cedula']}</td></tr>
-            <tr><th>4. Sexo</th><td>{datos['sexo']}</td></tr>
-            <tr><th>5. Edad</th><td>{datos['edad']}</td></tr>
-        </table>
+# --- NUEVO GENERADOR DE PDF (100% COMPATIBLE CON LA NUBE) ---
+class PDFAnexo(FPDF):
+    def header(self):
+        self.set_font('Arial', 'B', 14)
+        self.cell(0, 7, 'ANEXO No. 4', ln=True, align='C')
+        self.cell(0, 7, 'SOLICITUD DE DERIVACIÓN', ln=True, align='C')
+        self.set_font('Arial', '', 10)
+        self.cell(0, 6, 'SUBSISTEMA: MSP', ln=True, align='C')
+        self.ln(5)
 
-        <div class="section">6. Cuadro Clínico</div>
-        <p style="text-align: justify;">{datos['cuadro_clinico_texto']}</p>
-        
-        <h4 style="margin: 10px 0 5px 0;">Signos Vitales:</h4>
-        <table class="vitals-table">
-            <tr><th>PA (mmHg)</th><th>FC (min)</th><th>FR (min)</th><th>SpO₂ (%)</th><th>T° (°C)</th></tr>
-            <tr>
-                <td>{datos['pa']}</td><td>{datos['fc']}</td><td>{datos['fr']}</td><td>{datos['sao2']}%</td><td>{datos['temperatura']}°C</td>
-            </tr>
-        </table>
-
-        <div class="section">Detalles de la Solicitud</div>
-        <table>
-            <tr><th>7. Diagnóstico Principal (CIE-10)</th><td><strong>{datos['cie10_codigo']}</strong> - {datos['cie10_descripcion']}</td></tr>
-            <tr><th>8. Servicio Solicitado</th><td>UCI / ESPECIALIDAD CORRESPONDIENTE</td></tr>
-            <tr><th>10. Sustento de la Solicitud</th><td>LIMITADA CAPACIDAD RESOLUTIVA</td></tr>
-            <tr><th>11. Institución que Deriva</th><td>HOSPITAL BÁSICO PICHINCHA</td></tr>
-            <tr><th>12. Profesional que Deriva</th><td>DR. RHONNIE DUARTE MORAN</td></tr>
-        </table>
-    </body>
-    </html>
-    """
-    # Guarda el PDF en memoria temporal para descarga inmediata
-    return HTML(string=html_template).write_pdf()
+def generar_pdf_fpdf(datos):
+    pdf = PDFAnexo()
+    pdf.add_page()
+    pdf.set_margins(15, 15, 15)
+    
+    # Sección Datos Paciente
+    pdf.set_fill_color(43, 108, 176) # Azul
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(0, 6, ' DATOS DEL PACIENTE', ln=True, fill=True)
+    
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font('Arial', '', 10)
+    pdf.cell(50, 7, '1. Apellidos:', border=1)
+    pdf.cell(0, 7, f" {datos['apellidos_paciente']}", border=1, ln=True)
+    pdf.cell(50, 7, '2. Nombres:', border=1)
+    pdf.cell(0, 7, f" {datos['nombres_paciente']}", border=1, ln=True)
+    pdf.cell(50, 7, '3. Cédula de Identidad:', border=1)
+    pdf.cell(0, 7, f" {datos['cedula']}", border=1, ln=True)
+    pdf.cell(50, 7, '4. Sexo:', border=1)
+    pdf.cell(0, 7, f" {datos['sexo']}", border=1, ln=True)
+    pdf.cell(50, 7, '5. Edad:', border=1)
+    pdf.cell(0, 7, f" {datos['edad']}", border=1, ln=True)
+    
+    # Cuadro Clínico
+    pdf.ln(4)
+    pdf.set_fill_color(43, 108, 176)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(0, 6, ' 6. CUADRO CLÍNICO', ln=True, fill=True)
+    
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font('Arial', '', 9.5)
+    pdf.multi_cell(0, 5, f"\n{datos['cuadro_clinico_texto']}\n", border=1)
+    
+    # Signos Vitales
+    pdf.ln(2)
+    pdf.set_font('Arial', 'B', 9.5)
+    pdf.cell(0, 6, 'Signos Vitales extraídos:', ln=True)
+    pdf.set_font('Arial', '', 9)
+    pdf.cell(35, 6, f"PA: {datos['pa']}", border=1)
+    pdf.cell(35, 6, f"FC: {datos['fc']} x min", border=1)
+    pdf.cell(35, 6, f"FR: {datos['fr']} x min", border=1)
+    pdf.cell(35, 6, f"SpO2: {datos['sao2']}%", border=1)
+    pdf.cell(0, 6, f"T°: {datos['temperatura']} °C", border=1, ln=True)
+    
+    # Detalles de Solicitud
+    pdf.ln(4)
+    pdf.set_fill_color(43, 108, 176)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(0, 6, ' DETALLES DE LA SOLICITUD', ln=True, fill=True)
+    
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font('Arial', '', 10)
+    pdf.cell(60, 7, '7. Diagnóstico Principal CIE-10:', border=1)
+    pdf.cell(0, 7, f" {datos['cie10_codigo']} - {datos['cie10_descripcion']}", border=1, ln=True)
+    pdf.cell(60, 7, '8. Servicio Solicitado:', border=1)
+    pdf.cell(0, 7, ' UCI / ESPECIALIDAD REQUERIDA', border=1, ln=True)
+    pdf.cell(60, 7, '10. Sustento de Solicitud:', border=1)
+    pdf.cell(0, 7, ' LIMITADA CAPACIDAD RESOLUTIVA', border=1, ln=True)
+    pdf.cell(60, 7, '11. Institución que Deriva:', border=1)
+    pdf.cell(0, 7, ' HOSPITAL BÁSICO PICHINCHA', border=1, ln=True)
+    pdf.cell(60, 7, '12. Profesional que Deriva:', border=1)
+    pdf.cell(0, 7, ' DR. RHONNIE DUARTE MORAN', border=1, ln=True)
+    
+    # Firmas
+    pdf.ln(20)
+    pdf.cell(90, 5, '__________________________________', align='C')
+    pdf.cell(0, 5, '__________________________________', align='C', ln=True)
+    pdf.set_font('Arial', 'B', 9)
+    pdf.cell(90, 4, 'Dr. Rhonnie Duarte Morán', align='C')
+    pdf.cell(0, 4, 'Profesional que Acepta', align='C', ln=True)
+    pdf.set_font('Arial', '', 8.5)
+    pdf.cell(90, 4, 'Médico Solicitante / Hosp. Pichincha', align='C')
+    pdf.cell(0, 4, 'Firma y Sello', align='C', ln=True)
+    
+    return pdf.output()
 
 # --- INTERFAZ DE USUARIO (STREAMLIT) ---
 st.title("🏥 Automatización de Anexo No. 4")
-st.write("Sube la captura de pantalla del sistema para rellenar el formulario de derivación automáticamente.")
+st.write("Sube la captura de pantalla del sistema para rellenar el formulario automáticamente.")
 
 archivo = st.file_uploader("Arrastra aquí la imagen de la consulta", type=["png", "jpg", "jpeg"])
 
@@ -109,13 +135,11 @@ if archivo is not None:
     if st.button("🪄 Procesar Captura"):
         with st.spinner("La IA está leyendo los datos médicos..."):
             try:
-                # 1. Ejecutar lectura de la imagen
                 st.session_state['datos_clinicos'] = extraer_datos_captura(bytes_data)
                 st.success("¡Datos extraídos con éxito!")
             except Exception as e:
                 st.error(f"Error al procesar la imagen: {e}")
 
-    # Si los datos ya fueron extraídos, permitir revisión y descarga
     if 'datos_clinicos' in st.session_state:
         datos = st.session_state['datos_clinicos']
         
@@ -129,16 +153,18 @@ if archivo is not None:
             datos['sexo'] = st.text_input("Sexo", value=datos.get('sexo', ''))
             datos['edad'] = st.text_input("Edad", value=datos.get('edad', ''))
             datos['cie10_codigo'] = st.text_input("Código CIE-10", value=datos.get('cie10_codigo', ''))
+            datos['cie10_descripcion'] = st.text_input("Descripción CIE-10", value=datos.get('cie10_descripcion', ''))
             
         datos['cuadro_clinico_texto'] = st.text_area("Cuadro Clínico", value=datos.get('cuadro_clinico_texto', ''), height=150)
         
-        # Generar el PDF final basado en los campos editados
-        pdf_data = generar_pdf(datos)
-        
-        st.markdown("---")
-        st.download_button(
-            label="📥 Descargar Anexo 4 en PDF",
-            data=pdf_data,
-            file_name=f"Anexo_4_{datos['cedula']}.pdf",
-            mime="application/pdf"
-        )
+        try:
+            pdf_data = generar_pdf_fpdf(datos)
+            st.markdown("---")
+            st.download_button(
+                label="📥 Descargar Anexo 4 en PDF",
+                data=bytes(pdf_data),
+                file_name=f"Anexo_4_{datos['cedula']}.pdf",
+                mime="application/pdf"
+            )
+        except Exception as pdf_err:
+            st.error(f"Error al preparar el PDF: {pdf_err}")
