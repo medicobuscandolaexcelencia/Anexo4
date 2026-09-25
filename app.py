@@ -5,7 +5,11 @@ from google.genai import types
 from fpdf import FPDF
 
 # Configuración inicial de la página web
-st.set_page_config(page_title="Generador de Anexo 4", page_icon="🏥", layout="centered")
+st.set_page_config(page_title="Generador de Anexo 4", page_icon="🏥", layout="wide")
+
+# --- INICIALIZAR HISTORIAL EN LA SESIÓN ---
+if 'historial_pacientes' not in st.session_state:
+    st.session_state['historial_pacientes'] = []
 
 # --- CONEXIÓN CON EL CEREBRO DE IA ---
 def extraer_datos_captura(imagen_bytes):
@@ -33,7 +37,7 @@ def extraer_datos_captura(imagen_bytes):
     )
     return json.loads(response.text)
 
-# --- NUEVO GENERADOR DE PDF (100% COMPATIBLE CON LA NUBE) ---
+# --- GENERADOR DE PDF ---
 class PDFAnexo(FPDF):
     def header(self):
         self.set_font('Arial', 'B', 14)
@@ -49,7 +53,7 @@ def generar_pdf_fpdf(datos):
     pdf.set_margins(15, 15, 15)
     
     # Sección Datos Paciente
-    pdf.set_fill_color(43, 108, 176) # Azul
+    pdf.set_fill_color(43, 108, 176)
     pdf.set_text_color(255, 255, 255)
     pdf.set_font('Arial', 'B', 10)
     pdf.cell(0, 6, ' DATOS DEL PACIENTE', ln=True, fill=True)
@@ -57,15 +61,15 @@ def generar_pdf_fpdf(datos):
     pdf.set_text_color(0, 0, 0)
     pdf.set_font('Arial', '', 10)
     pdf.cell(50, 7, '1. Apellidos:', border=1)
-    pdf.cell(0, 7, f" {datos['apellidos_paciente']}", border=1, ln=True)
+    pdf.cell(0, 7, f" {datos.get('apellidos_paciente', '')}", border=1, ln=True)
     pdf.cell(50, 7, '2. Nombres:', border=1)
-    pdf.cell(0, 7, f" {datos['nombres_paciente']}", border=1, ln=True)
+    pdf.cell(0, 7, f" {datos.get('nombres_paciente', '')}", border=1, ln=True)
     pdf.cell(50, 7, '3. Cédula de Identidad:', border=1)
-    pdf.cell(0, 7, f" {datos['cedula']}", border=1, ln=True)
+    pdf.cell(0, 7, f" {datos.get('cedula', '')}", border=1, ln=True)
     pdf.cell(50, 7, '4. Sexo:', border=1)
-    pdf.cell(0, 7, f" {datos['sexo']}", border=1, ln=True)
+    pdf.cell(0, 7, f" {datos.get('sexo', '')}", border=1, ln=True)
     pdf.cell(50, 7, '5. Edad:', border=1)
-    pdf.cell(0, 7, f" {datos['edad']}", border=1, ln=True)
+    pdf.cell(0, 7, f" {datos.get('edad', '')}", border=1, ln=True)
     
     # Cuadro Clínico
     pdf.ln(4)
@@ -76,18 +80,18 @@ def generar_pdf_fpdf(datos):
     
     pdf.set_text_color(0, 0, 0)
     pdf.set_font('Arial', '', 9.5)
-    pdf.multi_cell(0, 5, f"\n{datos['cuadro_clinico_texto']}\n", border=1)
+    pdf.multi_cell(0, 5, f"\n{datos.get('cuadro_clinico_texto', '')}\n", border=1)
     
     # Signos Vitales
     pdf.ln(2)
     pdf.set_font('Arial', 'B', 9.5)
     pdf.cell(0, 6, 'Signos Vitales extraídos:', ln=True)
     pdf.set_font('Arial', '', 9)
-    pdf.cell(35, 6, f"PA: {datos['pa']}", border=1)
-    pdf.cell(35, 6, f"FC: {datos['fc']} x min", border=1)
-    pdf.cell(35, 6, f"FR: {datos['fr']} x min", border=1)
-    pdf.cell(35, 6, f"SpO2: {datos['sao2']}%", border=1)
-    pdf.cell(0, 6, f"T°: {datos['temperatura']} °C", border=1, ln=True)
+    pdf.cell(35, 6, f"PA: {datos.get('pa', '')}", border=1)
+    pdf.cell(35, 6, f"FC: {datos.get('fc', '')} x min", border=1)
+    pdf.cell(35, 6, f"FR: {datos.get('fr', '')} x min", border=1)
+    pdf.cell(35, 6, f"SpO2: {datos.get('sao2', '')}%", border=1)
+    pdf.cell(0, 6, f"T°: {datos.get('temperatura', '')} °C", border=1, ln=True)
     
     # Detalles de Solicitud
     pdf.ln(4)
@@ -99,7 +103,7 @@ def generar_pdf_fpdf(datos):
     pdf.set_text_color(0, 0, 0)
     pdf.set_font('Arial', '', 10)
     pdf.cell(60, 7, '7. Diagnóstico Principal CIE-10:', border=1)
-    pdf.cell(0, 7, f" {datos['cie10_codigo']} - {datos['cie10_descripcion']}", border=1, ln=True)
+    pdf.cell(0, 7, f" {datos.get('cie10_codigo', '')} - {datos.get('cie10_descripcion', '')}", border=1, ln=True)
     pdf.cell(60, 7, '8. Servicio Solicitado:', border=1)
     pdf.cell(0, 7, ' UCI / ESPECIALIDAD REQUERIDA', border=1, ln=True)
     pdf.cell(60, 7, '10. Sustento de Solicitud:', border=1)
@@ -122,49 +126,67 @@ def generar_pdf_fpdf(datos):
     
     return pdf.output()
 
-# --- INTERFAZ DE USUARIO (STREAMLIT) ---
-st.title("🏥 Automatización de Anexo No. 4")
-st.write("Sube la captura de pantalla del sistema para rellenar el formulario automáticamente.")
+# --- INTERFAZ PRINCIPAL ---
+st.title("🏥 Gestor de Anexo No. 4 - Multicaptura")
+st.write("Sube una o varias capturas de pantalla para procesarlas secuencialmente.")
 
-archivo = st.file_uploader("Arrastra aquí la imagen de la consulta", type=["png", "jpg", "jpeg"])
+# Permitir subir MÚLTIPLES archivos
+archivos = st.file_uploader("Selecciona o arrastra las capturas del sistema", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
 
-if archivo is not None:
-    bytes_data = archivo.read()
-    st.image(bytes_data, caption="Captura cargada", use_container_width=True)
+if archivos:
+    if st.button("🪄 Procesar Capturas Nuevas"):
+        with st.spinner("La IA está analizando las imágenes..."):
+            for archivo in archivos:
+                bytes_data = archivo.read()
+                try:
+                    datos = extraer_datos_captura(bytes_data)
+                    datos['nombre_archivo'] = archivo.name
+                    # Evitar duplicados revisando si la cédula/archivo ya existen
+                    st.session_state['historial_pacientes'].append(datos)
+                except Exception as e:
+                    st.error(f"Error procesando {archivo.name}: {e}")
+            st.success("¡Procesamiento completado!")
+
+# --- SECCIÓN DE PACIENTES PROCESADOS ---
+if st.session_state['historial_pacientes']:
+    st.markdown("---")
+    st.subheader(f"📋 Pacientes en Historial ({len(st.session_state['historial_pacientes'])})")
     
-    if st.button("🪄 Procesar Captura"):
-        with st.spinner("La IA está leyendo los datos médicos..."):
-            try:
-                st.session_state['datos_clinicos'] = extraer_datos_captura(bytes_data)
-                st.success("¡Datos extraídos con éxito!")
-            except Exception as e:
-                st.error(f"Error al procesar la imagen: {e}")
-
-    if 'datos_clinicos' in st.session_state:
-        datos = st.session_state['datos_clinicos']
+    # Selector para alternar entre pacientes procesados
+    nombres_pacientes = [
+        f"{p.get('cedula', 'Sin CI')} - {p.get('apellidos_paciente', '')} {p.get('nombres_paciente', '')}" 
+        for p in st.session_state['historial_pacientes']
+    ]
+    
+    paciente_sel_idx = st.selectbox("Selecciona un paciente para editar o generar su PDF:", range(len(nombres_pacientes)), format_func=lambda x: nombres_pacientes[x])
+    
+    datos_actuales = st.session_state['historial_pacientes'][paciente_sel_idx]
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        datos_actuales['apellidos_paciente'] = st.text_input("Apellidos", value=datos_actuales.get('apellidos_paciente', ''), key=f"ap_{paciente_sel_idx}")
+        datos_actuales['nombres_paciente'] = st.text_input("Nombres", value=datos_actuales.get('nombres_paciente', ''), key=f"nom_{paciente_sel_idx}")
+        datos_actuales['cedula'] = st.text_input("Cédula", value=datos_actuales.get('cedula', ''), key=f"ci_{paciente_sel_idx}")
+    with col2:
+        datos_actuales['sexo'] = st.text_input("Sexo", value=datos_actuales.get('sexo', ''), key=f"sx_{paciente_sel_idx}")
+        datos_actuales['edad'] = st.text_input("Edad", value=datos_actuales.get('edad', ''), key=f"ed_{paciente_sel_idx}")
+        datos_actuales['cie10_codigo'] = st.text_input("Código CIE-10", value=datos_actuales.get('cie10_codigo', ''), key=f"cie_{paciente_sel_idx}")
+        datos_actuales['cie10_descripcion'] = st.text_input("Descripción CIE-10", value=datos_actuales.get('cie10_descripcion', ''), key=f"cied_{paciente_sel_idx}")
         
-        st.subheader("📝 Revisión de Datos Extraídos")
-        col1, col2 = st.columns(2)
-        with col1:
-            datos['apellidos_paciente'] = st.text_input("Apellidos", value=datos.get('apellidos_paciente', ''))
-            datos['nombres_paciente'] = st.text_input("Nombres", value=datos.get('nombres_paciente', ''))
-            datos['cedula'] = st.text_input("Cédula", value=datos.get('cedula', ''))
-        with col2:
-            datos['sexo'] = st.text_input("Sexo", value=datos.get('sexo', ''))
-            datos['edad'] = st.text_input("Edad", value=datos.get('edad', ''))
-            datos['cie10_codigo'] = st.text_input("Código CIE-10", value=datos.get('cie10_codigo', ''))
-            datos['cie10_descripcion'] = st.text_input("Descripción CIE-10", value=datos.get('cie10_descripcion', ''))
-            
-        datos['cuadro_clinico_texto'] = st.text_area("Cuadro Clínico", value=datos.get('cuadro_clinico_texto', ''), height=150)
-        
-        try:
-            pdf_data = generar_pdf_fpdf(datos)
-            st.markdown("---")
-            st.download_button(
-                label="📥 Descargar Anexo 4 en PDF",
-                data=bytes(pdf_data),
-                file_name=f"Anexo_4_{datos['cedula']}.pdf",
-                mime="application/pdf"
-            )
-        except Exception as pdf_err:
-            st.error(f"Error al preparar el PDF: {pdf_err}")
+    datos_actuales['cuadro_clinico_texto'] = st.text_area("Cuadro Clínico", value=datos_actuales.get('cuadro_clinico_texto', ''), height=120, key=f"cc_{paciente_sel_idx}")
+    
+    pdf_bytes = generar_pdf_fpdf(datos_actuales)
+    
+    col_btn1, col_btn2 = st.columns([1, 1])
+    with col_btn1:
+        st.download_button(
+            label=f"📥 Descargar PDF ({datos_actuales.get('cedula', 'paciente')})",
+            data=bytes(pdf_bytes),
+            file_name=f"Anexo_4_{datos_actuales.get('cedula', 'paciente')}.pdf",
+            mime="application/pdf",
+            key=f"dl_{paciente_sel_idx}"
+        )
+    with col_btn2:
+        if st.button("🗑️ Borrar Todo el Historial"):
+            st.session_state['historial_pacientes'] = []
+            st.rerun()
