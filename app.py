@@ -35,9 +35,9 @@ def extraer_datos_capturas_consolidadas(lista_bytes_imagenes):
         "pa": "", "fc": "", "fr": "", "sao2": "", "temperatura": "",
         "cie10_codigo": "",
         "cie10_descripcion": "",
-        "servicio_solicitado": "Identifica la especialidad médica según el cuadro clínico (ej: OTORRINOLARINGOLOGÍA / ORL, CIRUGÍA GENERAL, TRAUMATOLOGÍA, NEUROCIRUGÍA, CUIDADOS INTENSIVOS / UCI, etc.)",
-        "codigo_servicio": "Si aplica o se menciona el código del servicio/especialidad",
-        "requerimiento": "Describe brevemente el requerimiento (ej: Valoración e intervención quirúrgica por especialidad, Manejo de cuadro agudo, etc.)",
+        "servicio_solicitado": "Identifica la especialidad médica según el cuadro clínico",
+        "codigo_servicio": "",
+        "requerimiento": "",
         "numero_caso": ""
     }
     """
@@ -62,6 +62,39 @@ def extraer_datos_capturas_consolidadas(lista_bytes_imagenes):
                     break
 
     raise ultimo_error
+
+
+# --- NUEVA FUNCIÓN: GENERA TEXTO PERFECTO PARA WHATSAPP ---
+def generar_texto_whatsapp(datos):
+    texto = f"""ANEXO NO. 4
+SOLICITUD DE DERIVACIÓN
+SUBSISTEMA: MSP
+
+DATOS DEL PACIENTE
+1. Apellidos: {datos.get('apellidos_paciente', '')}
+2. Nombres: {datos.get('nombres_paciente', '')}
+3. Cédula de Identidad: {datos.get('cedula', '')}
+4. Sexo: {datos.get('sexo', '')}
+5. Edad: {datos.get('edad', '')}
+
+6. CUADRO CLÍNICO:
+{datos.get('cuadro_clinico_texto', '')}
+
+Signos Vitales:
+PA: {datos.get('pa', '')} | FC: {datos.get('fc', '')} | FR: {datos.get('fr', '')} | SpO2: {datos.get('sao2', '')}% | T°: {datos.get('temperatura', '')}°C
+
+DETALLES DE LA SOLICITUD
+7. Diagnóstico Principal y CIE-10: {datos.get('cie10_codigo', '')} - {datos.get('cie10_descripcion', '')}
+8. Servicio(s) solicitado(s) y código: {datos.get('servicio_solicitado', '')}
+9. Colocar requerimiento: {datos.get('requerimiento', '')}
+10. Sustento de la solicitud: {datos.get('sustento', 'LIMITADA CAPACIDAD RESOLUTIVA')}
+11. Institución que deriva/remite: HOSPITAL BASICO DEL CANTON PICHINCHA
+12. Profesional que deriva/remite: DR RHONNIE DUARTE MORAN, MEDICO GENERAL
+13. Institución que recibe / hace solicitud: {datos.get('inst_recibe', '')}
+14. Profesional que acepta la derivación: {datos.get('prof_acepta', '')}
+15. Número caso: {datos.get('numero_caso', '')}"""
+    return texto
+
 
 # --- GENERADOR DE PDF ---
 class PDFAnexo(FPDF):
@@ -231,6 +264,14 @@ if st.session_state['historial_pacientes']:
         
     datos_actuales['cuadro_clinico_texto'] = st.text_area("6. Cuadro Clínico (Consolidado)", value=datos_actuales.get('cuadro_clinico_texto', ''), height=150, key=f"cc_{paciente_sel_idx}")
     
+    # --- MOSTRAR CUADRO DE TEXTO PARA COPIAR A WHATSAPP ---
+    st.markdown("---")
+    st.subheader("📱 Texto Formateado para WhatsApp")
+    st.write("Haz clic en el icono de **Copiar** (arriba a la derecha del cuadro negro) y pégalo directamente en WhatsApp:")
+    texto_wa = generar_texto_whatsapp(datos_actuales)
+    st.code(texto_wa, language="markdown")
+    st.markdown("---")
+
     pdf_bytes = generar_pdf_fpdf(datos_actuales)
     
     col_btn1, col_btn2 = st.columns([1, 1])
