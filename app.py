@@ -12,11 +12,10 @@ st.set_page_config(page_title="Generador de Anexo 4", page_icon="🏥", layout="
 if 'historial_pacientes' not in st.session_state:
     st.session_state['historial_pacientes'] = []
 
-# --- CONEXIÓN A IA CON REINTENTOS Y RESPALDO ROBUSTO ---
+# --- CONEXIÓN A IA CON DETERMINACIÓN AUTOMÁTICA DE ESPECIALIDAD ---
 def extraer_datos_capturas_consolidadas(lista_bytes_imagenes):
     client = genai.Client()
     
-    # Lista de modelos a intentar en orden de preferencia si hay alta demanda
     modelos = ['gemini-2.5-flash', 'gemini-1.5-flash']
     
     contents = []
@@ -35,14 +34,14 @@ def extraer_datos_capturas_consolidadas(lista_bytes_imagenes):
         "cuadro_clinico_texto": "Texto completo y consolidado de la enfermedad actual / evolución que aparezca en las capturas",
         "pa": "", "fc": "", "fr": "", "sao2": "", "temperatura": "",
         "cie10_codigo": "",
-        "cie10_descripcion": ""
+        "cie10_descripcion": "",
+        "servicio_solicitado": "Determina el servicio o especialidad médica requerida según el cuadro clínico (ej: Otorrinolaringología / ORL, Cuidados Intensivos / UCI, Traumatología, Neurocirugía, etc.)"
     }
     """
     contents.append(instrucciones)
 
     ultimo_error = None
 
-    # Intentar con modelos alternativos y reintentos ante error 503
     for modelo in modelos:
         for intento in range(3):
             try:
@@ -54,11 +53,10 @@ def extraer_datos_capturas_consolidadas(lista_bytes_imagenes):
                 return json.loads(response.text)
             except Exception as e:
                 ultimo_error = e
-                # Si es saturación (503), esperamos 2 segundos antes de reintentar
                 if "503" in str(e) or "UNAVAILABLE" in str(e):
                     time.sleep(2)
                 else:
-                    break  # Si es otro tipo de error, cambiamos de modelo de una vez
+                    break
 
     raise ultimo_error
 
@@ -130,7 +128,8 @@ def generar_pdf_fpdf(datos):
     pdf.cell(60, 7, '7. Diagnóstico Principal CIE-10:', border=1)
     pdf.cell(0, 7, f" {datos.get('cie10_codigo', '')} - {datos.get('cie10_descripcion', '')}", border=1, ln=True)
     pdf.cell(60, 7, '8. Servicio Solicitado:', border=1)
-    pdf.cell(0, 7, ' UCI / ESPECIALIDAD REQUERIDA', border=1, ln=True)
+    # AHORA MUESTRA EL SERVICIO DETERMINADO DINÁMICAMENTE POR LA IA
+    pdf.cell(0, 7, f" {datos.get('servicio_solicitado', 'VALORACIÓN POR ESPECIALIDAD').upper()}", border=1, ln=True)
     pdf.cell(60, 7, '10. Sustento de Solicitud:', border=1)
     pdf.cell(0, 7, ' LIMITADA CAPACIDAD RESOLUTIVA', border=1, ln=True)
     pdf.cell(60, 7, '11. Institución que Deriva:', border=1)
@@ -187,6 +186,7 @@ if st.session_state['historial_pacientes']:
         datos_actuales['apellidos_paciente'] = st.text_input("Apellidos", value=datos_actuales.get('apellidos_paciente', ''), key=f"ap_{paciente_sel_idx}")
         datos_actuales['nombres_paciente'] = st.text_input("Nombres", value=datos_actuales.get('nombres_paciente', ''), key=f"nom_{paciente_sel_idx}")
         datos_actuales['cedula'] = st.text_input("Cédula", value=datos_actuales.get('cedula', ''), key=f"ci_{paciente_sel_idx}")
+        datos_actuales['servicio_solicitado'] = st.text_input("Servicio / Especialidad Solicitada", value=datos_actuales.get('servicio_solicitado', ''), key=f"serv_{paciente_sel_idx}")
     with col2:
         datos_actuales['sexo'] = st.text_input("Sexo", value=datos_actuales.get('sexo', ''), key=f"sx_{paciente_sel_idx}")
         datos_actuales['edad'] = st.text_input("Edad", value=datos_actuales.get('edad', ''), key=f"ed_{paciente_sel_idx}")
