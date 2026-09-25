@@ -1,5 +1,6 @@
 import streamlit as st
 import json
+import time
 from google import genai
 from google.genai import types
 from fpdf import FPDF
@@ -11,11 +12,13 @@ st.set_page_config(page_title="Generador de Anexo 4", page_icon="🏥", layout="
 if 'historial_pacientes' not in st.session_state:
     st.session_state['historial_pacientes'] = []
 
-# --- CONEXIÓN CON EL CEREBRO DE IA (PROCESAMIENTO MULTI-IMAGEN CONSOLIDADO) ---
+# --- CONEXIÓN A IA CON REINTENTOS Y RESPALDO ROBUSTO ---
 def extraer_datos_capturas_consolidadas(lista_bytes_imagenes):
     client = genai.Client()
     
-    # Convertimos todas las capturas en partes para enviar a Gemini a la vez
+    # Lista de modelos a intentar en orden de preferencia si hay alta demanda
+    modelos = ['gemini-2.5-flash', 'gemini-1.5-flash']
+    
     contents = []
     for img_bytes in lista_bytes_imagenes:
         contents.append(types.Part.from_bytes(data=img_bytes, mime_type="image/png"))
@@ -36,13 +39,28 @@ def extraer_datos_capturas_consolidadas(lista_bytes_imagenes):
     }
     """
     contents.append(instrucciones)
-    
-    response = client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=contents,
-        config=types.GenerateContentConfig(response_mime_type="application/json"),
-    )
-    return json.loads(response.text)
+
+    ultimo_error = None
+
+    # Intentar con modelos alternativos y reintentos ante error 503
+    for modelo in modelos:
+        for intento in range(3):
+            try:
+                response = client.models.generate_content(
+                    model=modelo,
+                    contents=contents,
+                    config=types.GenerateContentConfig(response_mime_type="application/json"),
+                )
+                return json.loads(response.text)
+            except Exception as e:
+                ultimo_error = e
+                # Si es saturación (503), esperamos 2 segundos antes de reintentar
+                if "503" in str(e) or "UNAVAILABLE" in str(e):
+                    time.sleep(2)
+                else:
+                    break  # Si es otro tipo de error, cambiamos de modelo de una vez
+
+    raise ultimo_error
 
 # --- GENERADOR DE PDF ---
 class PDFAnexo(FPDF):
@@ -137,22 +155,18 @@ def generar_pdf_fpdf(datos):
 st.title("🏥 Gestor de Anexo No. 4")
 st.write("Sube una o varias capturas del MISMO PACIENTE para consolidar la información en una sola solicitud.")
 
-# Cargar capturas del mismo caso
 archivos = st.file_uploader("Selecciona o arrastra las capturas del sistema (filiación, evolución, etc.)", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
 
 if archivos:
     if st.button("🪄 Procesar y Consolidar Caso"):
-        with st.spinner("La IA está leyendo y unificando los datos de las capturas..."):
+        with st.spinner("La IA está analizando y unificando los datos..."):
             try:
-                # Obtenemos los bytes de todas las capturas cargadas
                 lista_bytes = [a.read() for a in archivos]
                 datos_consolidados = extraer_datos_capturas_consolidadas(lista_bytes)
-                
-                # Añadimos al historial el paciente unificado
                 st.session_state['historial_pacientes'].append(datos_consolidados)
                 st.success("¡Caso procesado y consolidado con éxito!")
             except Exception as e:
-                st.error(f"Error al consolidar las imágenes: {e}")
+                st.error(f"El servicio de IA está experimentando alta demanda. Por favor, presiona el botón nuevamente en unos segundos. Detalle: {e}")
 
 # --- SECCIÓN DE PACIENTES PROCESADOS ---
 if st.session_state['historial_pacientes']:
