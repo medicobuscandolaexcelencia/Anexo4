@@ -12,7 +12,7 @@ st.set_page_config(page_title="Generador de Anexo 4", page_icon="🏥", layout="
 if 'historial_pacientes' not in st.session_state:
     st.session_state['historial_pacientes'] = []
 
-# --- CONEXIÓN A IA CON DETERMINACIÓN AUTOMÁTICA DE ESPECIALIDAD ---
+# --- CONEXIÓN A IA CON EXTRACCIÓN DETALLADA ---
 def extraer_datos_capturas_consolidadas(lista_bytes_imagenes):
     client = genai.Client()
     
@@ -24,7 +24,7 @@ def extraer_datos_capturas_consolidadas(lista_bytes_imagenes):
     
     instrucciones = """
     Analiza TODAS las capturas de pantalla adjuntas que corresponden al MISMO paciente. 
-    Integra y consolida la información dispersa entre las distintas capturas (por ejemplo, si en una está la filiación y en otra la evolución o historia clínica) y extrae un solo JSON estructurado:
+    Integra y consolida la información dispersa entre las distintas capturas y extrae un solo JSON estructurado:
     {
         "apellidos_paciente": "",
         "nombres_paciente": "",
@@ -35,7 +35,10 @@ def extraer_datos_capturas_consolidadas(lista_bytes_imagenes):
         "pa": "", "fc": "", "fr": "", "sao2": "", "temperatura": "",
         "cie10_codigo": "",
         "cie10_descripcion": "",
-        "servicio_solicitado": "Determina el servicio o especialidad médica requerida según el cuadro clínico (ej: Otorrinolaringología / ORL, Cuidados Intensivos / UCI, Traumatología, Neurocirugía, etc.)"
+        "servicio_solicitado": "Identifica la especialidad médica según el cuadro clínico (ej: OTORRINOLARINGOLOGÍA / ORL, CIRUGÍA GENERAL, TRAUMATOLOGÍA, NEUROCIRUGÍA, CUIDADOS INTENSIVOS / UCI, etc.)",
+        "codigo_servicio": "Si aplica o se menciona el código del servicio/especialidad",
+        "requerimiento": "Describe brevemente el requerimiento (ej: Valoración e intervención quirúrgica por especialidad, Manejo de cuadro agudo, etc.)",
+        "numero_caso": ""
     }
     """
     contents.append(instrucciones)
@@ -116,7 +119,7 @@ def generar_pdf_fpdf(datos):
     pdf.cell(35, 6, f"SpO2: {datos.get('sao2', '')}%", border=1)
     pdf.cell(0, 6, f"T°: {datos.get('temperatura', '')} °C", border=1, ln=True)
     
-    # Detalles de Solicitud
+    # Detalles de Solicitud (Puntos 7 al 15)
     pdf.ln(4)
     pdf.set_fill_color(43, 108, 176)
     pdf.set_text_color(255, 255, 255)
@@ -124,21 +127,49 @@ def generar_pdf_fpdf(datos):
     pdf.cell(0, 6, ' DETALLES DE LA SOLICITUD', ln=True, fill=True)
     
     pdf.set_text_color(0, 0, 0)
-    pdf.set_font('Arial', '', 10)
-    pdf.cell(60, 7, '7. Diagnóstico Principal CIE-10:', border=1)
+    pdf.set_font('Arial', '', 9.5)
+    
+    # 7. Diagnóstico Principal y código CIE 10
+    pdf.cell(75, 7, '7. Diagnóstico Principal y CIE-10:', border=1)
     pdf.cell(0, 7, f" {datos.get('cie10_codigo', '')} - {datos.get('cie10_descripcion', '')}", border=1, ln=True)
-    pdf.cell(60, 7, '8. Servicio Solicitado:', border=1)
-    # AHORA MUESTRA EL SERVICIO DETERMINADO DINÁMICAMENTE POR LA IA
-    pdf.cell(0, 7, f" {datos.get('servicio_solicitado', 'VALORACIÓN POR ESPECIALIDAD').upper()}", border=1, ln=True)
-    pdf.cell(60, 7, '10. Sustento de Solicitud:', border=1)
-    pdf.cell(0, 7, ' LIMITADA CAPACIDAD RESOLUTIVA', border=1, ln=True)
-    pdf.cell(60, 7, '11. Institución que Deriva:', border=1)
-    pdf.cell(0, 7, ' HOSPITAL BÁSICO PICHINCHA', border=1, ln=True)
-    pdf.cell(60, 7, '12. Profesional que Deriva:', border=1)
-    pdf.cell(0, 7, ' DR. RHONNIE DUARTE MORAN', border=1, ln=True)
+    
+    # 8. Servicio(s) solicitado(s) con su respectivo código
+    serv_texto = f"{datos.get('servicio_solicitado', '')}"
+    if datos.get('codigo_servicio'):
+        serv_texto += f" (CÓD: {datos.get('codigo_servicio')})"
+    pdf.cell(75, 7, '8. Servicio(s) solicitado(s) y código:', border=1)
+    pdf.cell(0, 7, f" {serv_texto.upper()}", border=1, ln=True)
+    
+    # 9. Colocar requerimiento
+    pdf.cell(75, 7, '9. Colocar requerimiento:', border=1)
+    pdf.cell(0, 7, f" {datos.get('requerimiento', 'VALORACIÓN Y MANEJO POR ESPECIALIDAD')}", border=1, ln=True)
+    
+    # 10. Sustento de la solicitud
+    pdf.cell(75, 7, '10. Sustento de la solicitud:', border=1)
+    pdf.cell(0, 7, f" {datos.get('sustento', 'LIMITADA CAPACIDAD RESOLUTIVA')}", border=1, ln=True)
+    
+    # 11. Institución que deriva/remite
+    pdf.cell(75, 7, '11. Institución que deriva/remite:', border=1)
+    pdf.cell(0, 7, ' HOSPITAL BASICO DEL CANTON PICHINCHA', border=1, ln=True)
+    
+    # 12. Profesional que deriva/remite
+    pdf.cell(75, 7, '12. Profesional que deriva/remite:', border=1)
+    pdf.cell(0, 7, ' DR RHONNIE DUARTE MORAN, MEDICO GENERAL', border=1, ln=True)
+    
+    # 13. Institución que recibe y hace la solicitud
+    pdf.cell(75, 7, '13. Institución que recibe / hace solicitud:', border=1)
+    pdf.cell(0, 7, f" {datos.get('inst_recibe', '')}", border=1, ln=True)
+    
+    # 14. Profesional que acepta la derivación
+    pdf.cell(75, 7, '14. Profesional que acepta la derivación:', border=1)
+    pdf.cell(0, 7, f" {datos.get('prof_acepta', '')}", border=1, ln=True)
+    
+    # 15. Número caso
+    pdf.cell(75, 7, '15. Número caso:', border=1)
+    pdf.cell(0, 7, f" {datos.get('numero_caso', '')}", border=1, ln=True)
     
     # Firmas
-    pdf.ln(20)
+    pdf.ln(18)
     pdf.cell(90, 5, '__________________________________', align='C')
     pdf.cell(0, 5, '__________________________________', align='C', ln=True)
     pdf.set_font('Arial', 'B', 9)
@@ -186,21 +217,26 @@ if st.session_state['historial_pacientes']:
         datos_actuales['apellidos_paciente'] = st.text_input("Apellidos", value=datos_actuales.get('apellidos_paciente', ''), key=f"ap_{paciente_sel_idx}")
         datos_actuales['nombres_paciente'] = st.text_input("Nombres", value=datos_actuales.get('nombres_paciente', ''), key=f"nom_{paciente_sel_idx}")
         datos_actuales['cedula'] = st.text_input("Cédula", value=datos_actuales.get('cedula', ''), key=f"ci_{paciente_sel_idx}")
-        datos_actuales['servicio_solicitado'] = st.text_input("Servicio / Especialidad Solicitada", value=datos_actuales.get('servicio_solicitado', ''), key=f"serv_{paciente_sel_idx}")
+        datos_actuales['servicio_solicitado'] = st.text_input("8. Servicio Solicitado", value=datos_actuales.get('servicio_solicitado', ''), key=f"serv_{paciente_sel_idx}")
+        datos_actuales['requerimiento'] = st.text_input("9. Colocar Requerimiento", value=datos_actuales.get('requerimiento', 'VALORACIÓN Y MANEJO POR ESPECIALIDAD'), key=f"req_{paciente_sel_idx}")
+        datos_actuales['inst_recibe'] = st.text_input("13. Institución que recibe", value=datos_actuales.get('inst_recibe', ''), key=f"ir_{paciente_sel_idx}")
+
     with col2:
         datos_actuales['sexo'] = st.text_input("Sexo", value=datos_actuales.get('sexo', ''), key=f"sx_{paciente_sel_idx}")
         datos_actuales['edad'] = st.text_input("Edad", value=datos_actuales.get('edad', ''), key=f"ed_{paciente_sel_idx}")
         datos_actuales['cie10_codigo'] = st.text_input("Código CIE-10", value=datos_actuales.get('cie10_codigo', ''), key=f"cie_{paciente_sel_idx}")
-        datos_actuales['cie10_descripcion'] = st.text_input("Descripción CIE-10", value=datos_actuales.get('cie10_descripcion', ''), key=f"cied_{paciente_sel_idx}")
+        datos_actuales['cie10_descripcion'] = st.text_input("7. Descripción CIE-10", value=datos_actuales.get('cie10_descripcion', ''), key=f"cied_{paciente_sel_idx}")
+        datos_actuales['prof_acepta'] = st.text_input("14. Profesional que acepta", value=datos_actuales.get('prof_acepta', ''), key=f"pa_{paciente_sel_idx}")
+        datos_actuales['numero_caso'] = st.text_input("15. Número caso", value=datos_actuales.get('numero_caso', ''), key=f"nc_{paciente_sel_idx}")
         
-    datos_actuales['cuadro_clinico_texto'] = st.text_area("Cuadro Clínico (Consolidado)", value=datos_actuales.get('cuadro_clinico_texto', ''), height=150, key=f"cc_{paciente_sel_idx}")
+    datos_actuales['cuadro_clinico_texto'] = st.text_area("6. Cuadro Clínico (Consolidado)", value=datos_actuales.get('cuadro_clinico_texto', ''), height=150, key=f"cc_{paciente_sel_idx}")
     
     pdf_bytes = generar_pdf_fpdf(datos_actuales)
     
     col_btn1, col_btn2 = st.columns([1, 1])
     with col_btn1:
         st.download_button(
-            label=f"📥 Descargar PDF ({datos_actuales.get('cedula', 'paciente')})",
+            label=f"📥 Descargar PDF Anexo 4 ({datos_actuales.get('cedula', 'paciente')})",
             data=bytes(pdf_bytes),
             file_name=f"Anexo_4_{datos_actuales.get('cedula', 'paciente')}.pdf",
             mime="application/pdf",
