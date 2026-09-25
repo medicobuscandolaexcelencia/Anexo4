@@ -11,28 +11,35 @@ st.set_page_config(page_title="Generador de Anexo 4", page_icon="🏥", layout="
 if 'historial_pacientes' not in st.session_state:
     st.session_state['historial_pacientes'] = []
 
-# --- CONEXIÓN CON EL CEREBRO DE IA ---
-def extraer_datos_captura(imagen_bytes):
+# --- CONEXIÓN CON EL CEREBRO DE IA (PROCESAMIENTO MULTI-IMAGEN CONSOLIDADO) ---
+def extraer_datos_capturas_consolidadas(lista_bytes_imagenes):
     client = genai.Client()
-    imagen_input = types.Part.from_bytes(data=imagen_bytes, mime_type="image/png")
+    
+    # Convertimos todas las capturas en partes para enviar a Gemini a la vez
+    contents = []
+    for img_bytes in lista_bytes_imagenes:
+        contents.append(types.Part.from_bytes(data=img_bytes, mime_type="image/png"))
     
     instrucciones = """
-    Analiza la captura de pantalla del sistema médico y extrae los datos en formato JSON estricto:
+    Analiza TODAS las capturas de pantalla adjuntas que corresponden al MISMO paciente. 
+    Integra y consolida la información dispersa entre las distintas capturas (por ejemplo, si en una está la filiación y en otra la evolución o historia clínica) y extrae un solo JSON estructurado:
     {
         "apellidos_paciente": "",
         "nombres_paciente": "",
         "cedula": "",
         "sexo": "",
         "edad": "",
-        "cuadro_clinico_texto": "Texto íntegro del recuadro de enfermedad actual",
+        "cuadro_clinico_texto": "Texto completo y consolidado de la enfermedad actual / evolución que aparezca en las capturas",
         "pa": "", "fc": "", "fr": "", "sao2": "", "temperatura": "",
         "cie10_codigo": "",
         "cie10_descripcion": ""
     }
     """
+    contents.append(instrucciones)
+    
     response = client.models.generate_content(
         model='gemini-2.5-flash',
-        contents=[imagen_input, instrucciones],
+        contents=contents,
         config=types.GenerateContentConfig(response_mime_type="application/json"),
     )
     return json.loads(response.text)
@@ -127,32 +134,31 @@ def generar_pdf_fpdf(datos):
     return pdf.output()
 
 # --- INTERFAZ PRINCIPAL ---
-st.title("🏥 Gestor de Anexo No. 4 - Multicaptura")
-st.write("Sube una o varias capturas de pantalla para procesarlas secuencialmente.")
+st.title("🏥 Gestor de Anexo No. 4")
+st.write("Sube una o varias capturas del MISMO PACIENTE para consolidar la información en una sola solicitud.")
 
-# Permitir subir MÚLTIPLES archivos
-archivos = st.file_uploader("Selecciona o arrastra las capturas del sistema", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
+# Cargar capturas del mismo caso
+archivos = st.file_uploader("Selecciona o arrastra las capturas del sistema (filiación, evolución, etc.)", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
 
 if archivos:
-    if st.button("🪄 Procesar Capturas Nuevas"):
-        with st.spinner("La IA está analizando las imágenes..."):
-            for archivo in archivos:
-                bytes_data = archivo.read()
-                try:
-                    datos = extraer_datos_captura(bytes_data)
-                    datos['nombre_archivo'] = archivo.name
-                    # Evitar duplicados revisando si la cédula/archivo ya existen
-                    st.session_state['historial_pacientes'].append(datos)
-                except Exception as e:
-                    st.error(f"Error procesando {archivo.name}: {e}")
-            st.success("¡Procesamiento completado!")
+    if st.button("🪄 Procesar y Consolidar Caso"):
+        with st.spinner("La IA está leyendo y unificando los datos de las capturas..."):
+            try:
+                # Obtenemos los bytes de todas las capturas cargadas
+                lista_bytes = [a.read() for a in archivos]
+                datos_consolidados = extraer_datos_capturas_consolidadas(lista_bytes)
+                
+                # Añadimos al historial el paciente unificado
+                st.session_state['historial_pacientes'].append(datos_consolidados)
+                st.success("¡Caso procesado y consolidado con éxito!")
+            except Exception as e:
+                st.error(f"Error al consolidar las imágenes: {e}")
 
 # --- SECCIÓN DE PACIENTES PROCESADOS ---
 if st.session_state['historial_pacientes']:
     st.markdown("---")
-    st.subheader(f"📋 Pacientes en Historial ({len(st.session_state['historial_pacientes'])})")
+    st.subheader(f"📋 Pacientes Procesados ({len(st.session_state['historial_pacientes'])})")
     
-    # Selector para alternar entre pacientes procesados
     nombres_pacientes = [
         f"{p.get('cedula', 'Sin CI')} - {p.get('apellidos_paciente', '')} {p.get('nombres_paciente', '')}" 
         for p in st.session_state['historial_pacientes']
@@ -173,7 +179,7 @@ if st.session_state['historial_pacientes']:
         datos_actuales['cie10_codigo'] = st.text_input("Código CIE-10", value=datos_actuales.get('cie10_codigo', ''), key=f"cie_{paciente_sel_idx}")
         datos_actuales['cie10_descripcion'] = st.text_input("Descripción CIE-10", value=datos_actuales.get('cie10_descripcion', ''), key=f"cied_{paciente_sel_idx}")
         
-    datos_actuales['cuadro_clinico_texto'] = st.text_area("Cuadro Clínico", value=datos_actuales.get('cuadro_clinico_texto', ''), height=120, key=f"cc_{paciente_sel_idx}")
+    datos_actuales['cuadro_clinico_texto'] = st.text_area("Cuadro Clínico (Consolidado)", value=datos_actuales.get('cuadro_clinico_texto', ''), height=150, key=f"cc_{paciente_sel_idx}")
     
     pdf_bytes = generar_pdf_fpdf(datos_actuales)
     
@@ -187,6 +193,6 @@ if st.session_state['historial_pacientes']:
             key=f"dl_{paciente_sel_idx}"
         )
     with col_btn2:
-        if st.button("🗑️ Borrar Todo el Historial"):
+        if st.button("🗑️ Limpiar Pacientes"):
             st.session_state['historial_pacientes'] = []
             st.rerun()
